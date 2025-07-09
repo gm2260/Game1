@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لعبة Flappy Bird</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(to bottom, #87CEEB, #98FB98);
+            font-family: Arial, sans-serif;
+            direction: rtl;
+        }
+        
+        #gameContainer {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        canvas {
+            border: 3px solid #333;
+            border-radius: 10px;
+            background: linear-gradient(to bottom, #87CEEB, #98FB98);
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        
+        canvas:hover {
+            transform: scale(1.02);
+        }
+        
+        .controls {
+            margin-top: 15px;
+            color: #333;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .score {
+            font-size: 24px;
+            color: #2c3e50;
+            margin: 10px 0;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .game-over {
+            font-size: 28px;
+            color: #e74c3c;
+            font-weight: bold;
+            margin: 10px 0;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <h1 style="color: #2c3e50; margin-bottom: 10px;">🐦 لعبة Flappy Bird</h1>
+        <div class="score">النقاط: <span id="scoreDisplay">0</span></div>
+        <canvas id="gameCanvas" width="400" height="600"></canvas>
+        <div class="controls">
+            اضغط على الشاشة أو مفتاح المسافة للطيران ⬆️<br>
+            <span style="color: #e74c3c;">💀 وضع الرعب: خلفية حمراء + اهتزاز الشاشة!</span><br>
+            <span style="color: #8B0000;">👹 الوحش المتحرك يهاجم بالمقذوفات النارية!</span><br>
+            <span style="color: #f39c12;">⚡ تجاوز الوحش = 500 نقطة + انتهاء الكابوس</span>
+        </div>
+        <div id="gameOverMsg" class="game-over" style="display: none;">
+            انتهت اللعبة! اضغط للعب مرة أخرى
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const gameOverMsg = document.getElementById('gameOverMsg');
+
+        // Game variables
+        let gameState = 'playing'; // 'playing', 'gameOver'
+        let score = 0;
+        let frameCount = 0;
+
+        // Bird object
+        const bird = {
+            x: 80,
+            y: 300,
+            width: 30,
+            height: 30,
+            velocity: 0,
+            gravity: 0.5,
+            jumpPower: -8,
+            color: '#FF4444'
+        };
+
+        // Pipes array
+        const pipes = [];
+        const pipeWidth = 60;
+        const pipeGap = 200;
+        const pipeSpeed = 2;
+        let pipesPassed = 0;
+
+        // Monster system
+        const monsters = [];
+        const projectiles = [];
+        let monsterActive = false;
+        let noNewPipes = false;
+        let noNewPipesTimer = 0;
+        let screenShake = 0;
+        let horrorIntensity = 0;
+
+        // Create pipe
+        function createPipe() {
+            const minHeight = 50;
+            const maxHeight = canvas.height - pipeGap - minHeight;
+            const topHeight = Math.random() * (maxHeight - minHeight) + minHeight;
+            
+            pipes.push({
+                x: canvas.width,
+                topHeight: topHeight,
+                bottomY: topHeight + pipeGap,
+                bottomHeight: canvas.height - (topHeight + pipeGap),
+                passed: false
+            });
+        }
+
+        // Create monster
+        function createMonster() {
+            monsters.push({
+                x: canvas.width,
+                y: canvas.height / 2 - 40,
+                width: 80,
+                height: 80,
+                passed: false,
+                animFrame: 0,
+                velocityY: 2,
+                direction: 1,
+                attackTimer: 0,
+                health: 1
+            });
+            monsterActive = true;
+            horrorIntensity = 100;
+            screenShake = 5;
+        }
+
+        // Create projectile
+        function createProjectile(x, y) {
+            projectiles.push({
+                x: x,
+                y: y,
+                width: 15,
+                height: 10,
+                speed: 4,
+                color: '#FF6600'
+            });
+        }
+
+        // Draw bird
+        function drawBird() {
+            ctx.save();
+            
+            // Bird fear effect when monster is active
+            if (monsterActive) {
+                ctx.translate(
+                    bird.x + bird.width/2 + (Math.random() - 0.5) * 2,
+                    bird.y + bird.height/2 + (Math.random() - 0.5) * 2
+                );
+            } else {
+                ctx.translate(bird.x + bird.width/2, bird.y + bird.height/2);
+            }
+            
+            // Bird body with fear effect
+            ctx.fillStyle = monsterActive ? '#FF6666' : bird.color;
+            ctx.beginPath();
+            ctx.arc(0, 0, bird.width/2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Bird eye (wider when scared)
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            let eyeSize = monsterActive ? 6 : 4;
+            ctx.arc(5, -5, eyeSize, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Fear sweat drops
+            if (monsterActive) {
+                ctx.fillStyle = 'rgba(100, 150, 255, 0.7)';
+                ctx.fillRect(8, -10, 2, 8);
+                ctx.fillRect(10, -8, 2, 6);
+            }
+            
+            // Bird beak
+            ctx.fillStyle = '#FF6B35';
+            ctx.beginPath();
+            ctx.moveTo(bird.width/2 - 5, 0);
+            ctx.lineTo(bird.width/2 + 5, 0);
+            ctx.lineTo(bird.width/2, 5);
+            ctx.closePath();
+            ctx.fill();
+            
+            ctx.restore();
+        }
+
+        // Draw pipes
+        function drawPipes() {
+            pipes.forEach(pipe => {
+                // Top pipe
+                const gradient1 = ctx.createLinearGradient(pipe.x, 0, pipe.x + pipeWidth, 0);
+                gradient1.addColorStop(0, '#2ecc71');
+                gradient1.addColorStop(1, '#27ae60');
+                ctx.fillStyle = gradient1;
+                ctx.fillRect(pipe.x, 0, pipeWidth, pipe.topHeight);
+                
+                // Bottom pipe
+                const gradient2 = ctx.createLinearGradient(pipe.x, pipe.bottomY, pipe.x + pipeWidth, pipe.bottomY);
+                gradient2.addColorStop(0, '#2ecc71');
+                gradient2.addColorStop(1, '#27ae60');
+                ctx.fillStyle = gradient2;
+                ctx.fillRect(pipe.x, pipe.bottomY, pipeWidth, pipe.bottomHeight);
+                
+                // Pipe caps
+                ctx.fillStyle = '#1e8449';
+                ctx.fillRect(pipe.x - 5, pipe.topHeight - 20, pipeWidth + 10, 20);
+                ctx.fillRect(pipe.x - 5, pipe.bottomY, pipeWidth + 10, 20);
+            });
+        }
+
+        // Draw monster
+        function drawMonster() {
+            monsters.forEach(monster => {
+                // Screen shake when monster is active
+                if (screenShake > 0) {
+                    ctx.save();
+                    ctx.translate(
+                        (Math.random() - 0.5) * screenShake,
+                        (Math.random() - 0.5) * screenShake
+                    );
+                    screenShake *= 0.9;
+                }
+                
+                ctx.save();
+                ctx.translate(monster.x + monster.width/2, monster.y + monster.height/2);
+                
+                // Monster breathing animation
+                let breathScale = 1 + Math.sin(monster.animFrame * 0.1) * 0.15;
+                ctx.scale(breathScale, breathScale);
+                
+                // Monster body with gradient
+                const bodyGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, monster.width/2);
+                bodyGradient.addColorStop(0, '#FF0000');
+                bodyGradient.addColorStop(0.5, '#CC0000');
+                bodyGradient.addColorStop(1, '#660000');
+                ctx.fillStyle = bodyGradient;
+                ctx.fillRect(-monster.width/2, -monster.height/2, monster.width, monster.height);
+                
+                // Monster eyes with evil glow
+                let eyeOpen = Math.sin(monster.animFrame * 0.05) > -0.8;
+                ctx.fillStyle = eyeOpen ? '#FFFF00' : '#FF0000';
+                ctx.shadowColor = '#FFFF00';
+                ctx.shadowBlur = 20;
+                ctx.fillRect(-25, -20, 15, eyeOpen ? 15 : 3);
+                ctx.fillRect(10, -20, 15, eyeOpen ? 15 : 3);
+                ctx.shadowBlur = 0;
+                
+                // Eye pupils
+                if (eyeOpen) {
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(-20, -15, 5, 5);
+                    ctx.fillRect(15, -15, 5, 5);
+                }
+                
+                // Monster mouth with animated teeth
+                ctx.fillStyle = '#000';
+                ctx.fillRect(-30, 0, 60, 20);
+                
+                // Animated teeth with blood
+                ctx.fillStyle = '#FFF';
+                let teethOffset = Math.sin(monster.animFrame * 0.1) * 2;
+                for(let i = 0; i < 8; i++) {
+                    ctx.fillRect(-25 + i*7, 0 + teethOffset, 4, 15);
+                }
+                
+                // Blood on teeth
+                ctx.fillStyle = '#800000';
+                for(let i = 0; i < 3; i++) {
+                    ctx.fillRect(-20 + i*10, 8 + teethOffset, 2, 7);
+                }
+                
+                // Monster horns with evil aura
+                ctx.fillStyle = '#330000';
+                ctx.shadowColor = '#FF0000';
+                ctx.shadowBlur = 10;
+                ctx.fillRect(-20, -45, 10, 25);
+                ctx.fillRect(10, -45, 10, 25);
+                ctx.shadowBlur = 0;
+                
+                // Wing-like appendages
+                ctx.fillStyle = '#440000';
+                ctx.fillRect(-60, -15, 20, 40);
+                ctx.fillRect(40, -15, 20, 40);
+                
+                // Evil smoke effect
+                ctx.fillStyle = 'rgba(100, 0, 0, 0.3)';
+                for(let i = 0; i < 5; i++) {
+                    let smokeX = -30 + i * 15 + Math.sin(monster.animFrame * 0.1 + i) * 10;
+                    let smokeY = -50 + Math.sin(monster.animFrame * 0.08 + i) * 15;
+                    ctx.fillRect(smokeX, smokeY, 8, 8);
+                }
+                
+                ctx.restore();
+                
+                // Monster glow effect (pulsing)
+                let glowIntensity = 20 + Math.sin(monster.animFrame * 0.3) * 15;
+                ctx.shadowColor = '#FF0000';
+                ctx.shadowBlur = glowIntensity;
+                ctx.strokeStyle = '#FF0000';
+                ctx.lineWidth = 4;
+                ctx.strokeRect(monster.x, monster.y, monster.width, monster.height);
+                ctx.shadowBlur = 0;
+                
+                // Attack charge indicator
+                if (monster.attackTimer > 40) {
+                    ctx.fillStyle = 'rgba(255, 50, 0, 0.8)';
+                    ctx.fillRect(monster.x - 15, monster.y - 15, monster.width + 30, 8);
+                    
+                    // Danger warning
+                    ctx.fillStyle = '#FF0000';
+                    ctx.font = '20px Arial';
+                    ctx.fillText('⚠️', monster.x + monster.width + 10, monster.y + 20);
+                }
+                
+                if (screenShake > 0) {
+                    ctx.restore();
+                }
+            });
+        }
+
+        // Draw projectiles
+        function drawProjectiles() {
+            projectiles.forEach(projectile => {
+                ctx.save();
+                
+                // Enhanced projectile glow for horror mode
+                if (monsterActive) {
+                    ctx.shadowColor = '#FF0000';
+                    ctx.shadowBlur = 20;
+                    
+                    // Evil trail effect
+                    ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+                    for(let i = 0; i < 3; i++) {
+                        ctx.fillRect(projectile.x + projectile.width + i*8, projectile.y + 1, 6, projectile.height - 2);
+                    }
+                } else {
+                    ctx.shadowColor = projectile.color;
+                    ctx.shadowBlur = 10;
+                }
+                
+                // Projectile body
+                ctx.fillStyle = projectile.color;
+                ctx.fillRect(projectile.x, projectile.y, projectile.width, projectile.height);
+                
+                // Projectile trail
+                ctx.fillStyle = monsterActive ? 'rgba(255, 0, 0, 0.6)' : 'rgba(255, 102, 0, 0.5)';
+                ctx.fillRect(projectile.x + projectile.width, projectile.y + 2, 10, projectile.height - 4);
+                
+                ctx.restore();
+            });
+        }
+
+        // Update bird
+        function updateBird() {
+            if (gameState === 'playing') {
+                bird.velocity += bird.gravity;
+                bird.y += bird.velocity;
+                
+                // Ground collision
+                if (bird.y + bird.height > canvas.height) {
+                    gameOver();
+                }
+                
+                // Ceiling collision
+                if (bird.y < 0) {
+                    bird.y = 0;
+                    bird.velocity = 0;
+                }
+            }
+        }
+
+        // Update pipes
+        function updatePipes() {
+            if (gameState === 'playing') {
+                // Handle no new pipes timer
+                if (noNewPipes) {
+                    noNewPipesTimer--;
+                    if (noNewPipesTimer <= 0) {
+                        noNewPipes = false;
+                    }
+                }
+                
+                // Create new pipe or monster
+                if (frameCount % 120 === 0 && !noNewPipes) {
+                    if (pipesPassed > 0 && pipesPassed % 3 === 0 && !monsterActive) {
+                        createMonster();
+                    } else {
+                        createPipe();
+                    }
+                }
+                
+                // Move pipes
+                pipes.forEach((pipe, index) => {
+                    pipe.x -= pipeSpeed;
+                    
+                    // Check if bird passed pipe
+                    if (!pipe.passed && bird.x > pipe.x + pipeWidth) {
+                        pipe.passed = true;
+                        score += 10;
+                        pipesPassed++;
+                        scoreDisplay.textContent = score;
+                    }
+                    
+                    // Remove off-screen pipes
+                    if (pipe.x + pipeWidth < 0) {
+                        pipes.splice(index, 1);
+                    }
+                });
+                
+                // Move and update monsters
+                monsters.forEach((monster, index) => {
+                    monster.x -= pipeSpeed;
+                    monster.animFrame++;
+                    monster.attackTimer++;
+                    
+                    // Monster vertical movement
+                    monster.y += monster.velocityY * monster.direction;
+                    
+                    // Bounce off boundaries
+                    if (monster.y <= 50) {
+                        monster.direction = 1;
+                        monster.y = 50;
+                    } else if (monster.y >= canvas.height - monster.height - 50) {
+                        monster.direction = -1;
+                        monster.y = canvas.height - monster.height - 50;
+                    }
+                    
+                    // Attack behavior
+                    if (monster.attackTimer > 60) { // Attack every second
+                        if (monster.x < canvas.width - 50) { // Only attack when close
+                            createProjectile(monster.x, monster.y + monster.height/2);
+                        }
+                        monster.attackTimer = 0;
+                    }
+                    
+                    // Check if bird passed monster
+                    if (!monster.passed && bird.x > monster.x + monster.width) {
+                        monster.passed = true;
+                        score += 500;
+                        scoreDisplay.textContent = score;
+                        
+                        // Victory effects
+                        screenShake = 10;
+                        horrorIntensity = 0;
+                        
+                        // Stop creating new pipes for a while
+                        noNewPipes = true;
+                        noNewPipesTimer = 180; // 3 seconds at 60fps
+                        
+                        // Remove existing pipes
+                        pipes.length = 0;
+                        
+                        monsterActive = false;
+                    }
+                    
+                    // Remove off-screen monsters
+                    if (monster.x + monster.width < 0) {
+                        monsters.splice(index, 1);
+                        monsterActive = false;
+                        horrorIntensity = 0;
+                    }
+                });
+                
+                // Update projectiles
+                projectiles.forEach((projectile, index) => {
+                    projectile.x -= projectile.speed;
+                    
+                    // Remove off-screen projectiles
+                    if (projectile.x + projectile.width < 0) {
+                        projectiles.splice(index, 1);
+                    }
+                });
+            }
+        }
+
+        // Check collisions
+        function checkCollisions() {
+            pipes.forEach(pipe => {
+                // Check collision with top pipe
+                if (bird.x < pipe.x + pipeWidth &&
+                    bird.x + bird.width > pipe.x &&
+                    bird.y < pipe.topHeight) {
+                    gameOver();
+                }
+                
+                // Check collision with bottom pipe
+                if (bird.x < pipe.x + pipeWidth &&
+                    bird.x + bird.width > pipe.x &&
+                    bird.y + bird.height > pipe.bottomY) {
+                    gameOver();
+                }
+            });
+            
+            // Check collision with monsters
+            monsters.forEach(monster => {
+                if (bird.x < monster.x + monster.width &&
+                    bird.x + bird.width > monster.x &&
+                    bird.y < monster.y + monster.height &&
+                    bird.y + bird.height > monster.y) {
+                    gameOver();
+                }
+            });
+            
+            // Check collision with projectiles
+            projectiles.forEach((projectile, index) => {
+                if (bird.x < projectile.x + projectile.width &&
+                    bird.x + bird.width > projectile.x &&
+                    bird.y < projectile.y + projectile.height &&
+                    bird.y + bird.height > projectile.y) {
+                    gameOver();
+                }
+            });
+        }
+
+        // Draw background
+        function drawBackground() {
+            // Horror mode when monster is active
+            if (monsterActive) {
+                // Scary red/black gradient
+                const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+                gradient.addColorStop(0, '#330000');
+                gradient.addColorStop(0.3, '#660000');
+                gradient.addColorStop(0.7, '#990000');
+                gradient.addColorStop(1, '#CC0000');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Lightning effect
+                if (Math.random() < 0.05) {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                }
+                
+                // Dark clouds
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.beginPath();
+                ctx.arc(100 + Math.sin(frameCount * 0.02) * 5, 80, 40, 0, Math.PI * 2);
+                ctx.arc(130 + Math.sin(frameCount * 0.02) * 5, 80, 50, 0, Math.PI * 2);
+                ctx.arc(160 + Math.sin(frameCount * 0.02) * 5, 80, 40, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.arc(280 + Math.sin(frameCount * 0.03) * 8, 120, 35, 0, Math.PI * 2);
+                ctx.arc(310 + Math.sin(frameCount * 0.03) * 8, 120, 45, 0, Math.PI * 2);
+                ctx.arc(340 + Math.sin(frameCount * 0.03) * 8, 120, 35, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Floating evil eyes
+                ctx.fillStyle = '#FF0000';
+                ctx.shadowColor = '#FF0000';
+                ctx.shadowBlur = 15;
+                
+                for (let i = 0; i < 3; i++) {
+                    let eyeX = 50 + i * 150 + Math.sin(frameCount * 0.03 + i) * 20;
+                    let eyeY = 200 + Math.sin(frameCount * 0.04 + i) * 30;
+                    ctx.fillRect(eyeX, eyeY, 8, 8);
+                    ctx.fillRect(eyeX + 15, eyeY, 8, 8);
+                }
+                ctx.shadowBlur = 0;
+                
+                // Blood drip effect
+                ctx.fillStyle = '#800000';
+                for (let i = 0; i < 5; i++) {
+                    let dropX = i * 80 + 40;
+                    let dropY = (frameCount * 2 + i * 30) % canvas.height;
+                    ctx.fillRect(dropX, dropY, 3, 20);
+                }
+                
+            } else {
+                // Normal sky gradient
+                const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+                gradient.addColorStop(0, '#87CEEB');
+                gradient.addColorStop(1, '#98FB98');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Normal clouds
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.beginPath();
+                ctx.arc(100, 100, 30, 0, Math.PI * 2);
+                ctx.arc(120, 100, 40, 0, Math.PI * 2);
+                ctx.arc(140, 100, 30, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.arc(300, 150, 25, 0, Math.PI * 2);
+                ctx.arc(315, 150, 35, 0, Math.PI * 2);
+                ctx.arc(330, 150, 25, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // Game over
+        function gameOver() {
+            gameState = 'gameOver';
+            gameOverMsg.style.display = 'block';
+        }
+
+        // Reset game
+        function resetGame() {
+            gameState = 'playing';
+            score = 0;
+            frameCount = 0;
+            pipesPassed = 0;
+            bird.y = 300;
+            bird.velocity = 0;
+            pipes.length = 0;
+            monsters.length = 0;
+            projectiles.length = 0;
+            monsterActive = false;
+            noNewPipes = false;
+            noNewPipesTimer = 0;
+            screenShake = 0;
+            horrorIntensity = 0;
+            scoreDisplay.textContent = score;
+            gameOverMsg.style.display = 'none';
+        }
+
+        // Bird jump
+        function jump() {
+            if (gameState === 'playing') {
+                bird.velocity = bird.jumpPower;
+            } else if (gameState === 'gameOver') {
+                resetGame();
+            }
+        }
+
+        // Game loop
+        function gameLoop() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw background
+            drawBackground();
+            
+            // Horror overlay when monster is active
+            if (monsterActive) {
+                // Dark vignette effect
+                const vignette = ctx.createRadialGradient(
+                    canvas.width/2, canvas.height/2, 0,
+                    canvas.width/2, canvas.height/2, canvas.width/2
+                );
+                vignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                vignette.addColorStop(0.7, 'rgba(0, 0, 0, 0.3)');
+                vignette.addColorStop(1, 'rgba(0, 0, 0, 0.8)');
+                ctx.fillStyle = vignette;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Heartbeat effect
+                let heartbeat = Math.sin(frameCount * 0.3) * 0.1;
+                ctx.fillStyle = `rgba(255, 0, 0, ${0.1 + heartbeat})`;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Horror text warning
+                ctx.fillStyle = '#FF0000';
+                ctx.font = 'bold 24px Arial';
+                ctx.shadowColor = '#000';
+                ctx.shadowBlur = 5;
+                let warningText = 'DANGER! MONSTER APPROACHING!';
+                let textWidth = ctx.measureText(warningText).width;
+                ctx.fillText(warningText, (canvas.width - textWidth) / 2, 50);
+                ctx.shadowBlur = 0;
+            }
+            
+            // Update
+            updateBird();
+            updatePipes();
+            checkCollisions();
+            
+            // Draw
+            drawPipes();
+            drawMonster();
+            drawProjectiles();
+            drawBird();
+            
+            // Reduce screen shake
+            if (screenShake > 0) {
+                screenShake *= 0.95;
+            }
+            
+            frameCount++;
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Event listeners
+        canvas.addEventListener('click', jump);
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                jump();
+            }
+        });
+
+        // Start game
+        gameLoop();
+    </script>
+</body>
+</html>
